@@ -24,9 +24,9 @@ jobs:
       run: |
         echo ${{ steps.tag.outputs.new_tag }} > tag.txt
     - name: upload new tag artifact
-      uses: actions/upload-artifact@v1
+      uses: actions/upload-artifact@v4
       with:
-        name: uploads
+        name: tag
         path: tag.txt
   build-linux:
     runs-on: ubuntu-latest
@@ -34,9 +34,9 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - name: download artifacts
-      uses: actions/download-artifact@v1
+      uses: actions/download-artifact@v4
       with:
-        name: uploads
+        name: tag
 
     - uses: actions/setup-node@v4
       with:
@@ -45,7 +45,7 @@ jobs:
     - name: build
       run: |
         npm install -g bats
-        export DUPLO_VERSION=`cat ./uploads/tag.txt`
+        export DUPLO_VERSION=`cat ./tag/tag.txt`
         mkdir -p build
         pushd build
         cmake .. -DDUPLO_VERSION=\"$DUPLO_VERSION\"
@@ -53,9 +53,9 @@ jobs:
         popd
         zip --junk-paths duplo-linux build/duplo
     - name: upload linux artifact
-      uses: actions/upload-artifact@v1
+      uses: actions/upload-artifact@v4
       with:
-        name: uploads
+        name: duplo-linux
         path: duplo-linux.zip
   build-macos:
     runs-on: macos-latest
@@ -63,13 +63,13 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - name: download artifacts
-      uses: actions/download-artifact@v1
+      uses: actions/download-artifact@v4
       with:
-        name: uploads
+        name: tag
     - name: build
       run: |
         brew install bats-core
-        export DUPLO_VERSION=`cat ./uploads/tag.txt`
+        export DUPLO_VERSION=`cat ./tag/tag.txt`
         mkdir -p build
         pushd build
         cmake .. -DDUPLO_VERSION=\"$DUPLO_VERSION\"
@@ -77,23 +77,23 @@ jobs:
         popd
         zip --junk-paths duplo-macos build/duplo
     - name: upload macos artifact
-      uses: actions/upload-artifact@v1
+      uses: actions/upload-artifact@v4
       with:
-        name: uploads
+        name: duplo-macos
         path: duplo-macos.zip
   push-docker-image:
     runs-on: ubuntu-latest
     needs: [bump-tag-dry]
     steps:
     - name: download artifacts
-      uses: actions/download-artifact@v1
+      uses: actions/download-artifact@v4
       with:
-        name: uploads
+        name: tag
 
     - name: set version
       id: version
       run: |
-        DUPLO_VERSION=$(cat ./uploads/tag.txt)
+        DUPLO_VERSION=$(cat ./tag/tag.txt)
         echo $DUPLO_VERSION
         echo "DUPLO_VERSION=$DUPLO_VERSION" >> $GITHUB_ENV
         echo "DUPLO_VERSION=$DUPLO_VERSION" >> $GITHUB_OUTPUT
@@ -155,27 +155,18 @@ jobs:
         release_name: Release ${{ steps.tag.outputs.tag }}
         draft: false
         prerelease: false
-    - name: download artifacts
-      uses: actions/download-artifact@v1
+    - name: download macos artifact
+      uses: actions/download-artifact@v4
       with:
-        name: uploads
-    - name: upload macos
-      id: upload-macos
-      uses: actions/upload-release-asset@v1.0.1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        name: duplo-macos
+    - name: download linux artifact
+      uses: actions/download-artifact@v4
       with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./uploads/duplo-macos.zip
-        asset_name: duplo-macos.zip
-        asset_content_type: application/zip
-    - name: upload linux
-      id: upload-linux
-      uses: actions/upload-release-asset@v1.0.1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        name: duplo-linux
+    - name: release
+      id: release
+      uses: softprops/action-gh-release@v2
       with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./uploads/duplo-linux.zip
-        asset_name: duplo-linux.zip
-        asset_content_type: application/zip
+        files: |
+          duplo-macos/duplo-macos.zip
+          duplo-linux/duplo-linux.zip
