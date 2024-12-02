@@ -24,9 +24,9 @@ jobs:
       run: |
         echo ${{ steps.tag.outputs.new_tag }} > tag.txt
     - name: upload new tag artifact
-      uses: actions/upload-artifact@v1
+      uses: actions/upload-artifact@v4
       with:
-        name: uploads
+        name: tag
         path: tag.txt
   build-linux:
     runs-on: ubuntu-latest
@@ -34,9 +34,9 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - name: download artifacts
-      uses: actions/download-artifact@v1
+      uses: actions/download-artifact@v4
       with:
-        name: uploads
+        name: tag
 
     - uses: actions/setup-node@v4
       with:
@@ -53,9 +53,9 @@ jobs:
         popd
         zip --junk-paths duplo-linux build/duplo
     - name: upload linux artifact
-      uses: actions/upload-artifact@v1
+      uses: actions/upload-artifact@v4
       with:
-        name: uploads
+        name: duplo-linux
         path: duplo-linux.zip
   build-macos:
     runs-on: macos-latest
@@ -63,9 +63,9 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - name: download artifacts
-      uses: actions/download-artifact@v1
+      uses: actions/download-artifact@v4
       with:
-        name: uploads
+        name: tag
     - name: build
       run: |
         brew install bats-core
@@ -77,18 +77,18 @@ jobs:
         popd
         zip --junk-paths duplo-macos build/duplo
     - name: upload macos artifact
-      uses: actions/upload-artifact@v1
+      uses: actions/upload-artifact@v4
       with:
-        name: uploads
+        name: duplo-macos
         path: duplo-macos.zip
   push-docker-image:
     runs-on: ubuntu-latest
     needs: [bump-tag-dry]
     steps:
     - name: download artifacts
-      uses: actions/download-artifact@v1
+      uses: actions/download-artifact@v4
       with:
-        name: uploads
+        name: tag
 
     - name: set version
       id: version
@@ -155,10 +155,10 @@ jobs:
         release_name: Release ${{ steps.tag.outputs.tag }}
         draft: false
         prerelease: false
-    - name: download artifacts
-      uses: actions/download-artifact@v1
+    - name: download macos artifact
+      uses: actions/download-artifact@v4
       with:
-        name: uploads
+        name: duplo-macos
     - name: upload macos
       id: upload-macos
       uses: actions/upload-release-asset@v1.0.1
@@ -166,9 +166,13 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./uploads/duplo-macos.zip
+        asset_path: ./duplo-macos/duplo-macos.zip
         asset_name: duplo-macos.zip
         asset_content_type: application/zip
+    - name: download linux artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: duplo-linux
     - name: upload linux
       id: upload-linux
       uses: actions/upload-release-asset@v1.0.1
@@ -176,6 +180,6 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./uploads/duplo-linux.zip
+        asset_path: ./duplo-linux/duplo-linux.zip
         asset_name: duplo-linux.zip
         asset_content_type: application/zip
