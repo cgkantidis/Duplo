@@ -1,5 +1,15 @@
 cmake_minimum_required(VERSION 3.15.5)
 project(duplo)
+
+if(CMAKE_CONFIGURATION_TYPES)
+    list(APPEND CMAKE_CONFIGURATION_TYPES Profile ASAN)
+  list(REMOVE_DUPLICATES CMAKE_CONFIGURATION_TYPES)
+  set(CMAKE_CONFIGURATION_TYPES "${CMAKE_CONFIGURATION_TYPES}" CACHE STRING
+    "Add the configurations that we need"
+    FORCE)
+endif()
+
+
 file(GLOB SOURCES src/*.cpp)
 
 SET(DUPLO_VERSION "\"v1.0.1\"" CACHE STRING "Duplo version")
@@ -35,6 +45,11 @@ find_package(thread_pool 5.0.0 REQUIRED)
 add_library(thread_pool INTERFACE)
 target_include_directories(thread_pool INTERFACE ${thread_pool_SOURCE_DIR}/include)
 target_link_libraries(duplo PRIVATE nlohmann_json::nlohmann_json thread_pool)
+
+target_compile_options(duplo PRIVATE $<$<CONFIG:Profile>:-O0 -g>)
+target_link_libraries(duplo PRIVATE $<$<CONFIG:Profile>:profiler>)
+target_compile_options(duplo PRIVATE $<$<CONFIG:ASAN>:-fsanitize=address -fno-omit-frame-pointer -fno-optimize-sibling-calls -g -O1>)
+target_link_options(duplo PRIVATE $<$<CONFIG:ASAN>:-fsanitize=address>)
 
 if(NOT MSVC)
     target_compile_options(duplo PRIVATE -Wall -Werror)
