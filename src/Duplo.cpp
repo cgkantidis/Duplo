@@ -21,6 +21,7 @@
 #include <tuple>
 #include <unordered_map>
 #include <unordered_set>
+#include <thread>
 
 typedef std::tuple<unsigned, std::string> FileLength;
 typedef const std::string* StringPtr;
@@ -211,6 +212,115 @@ namespace {
         }
     }
 
+    void ProcessVertical(
+        const SourceFile& source1,
+        const SourceFile& source2,
+        const Matrix& matrix,
+        const Options& options,
+        std::ostream& outFile,
+        std::optional<json>& json_out,
+        std::size_t m,
+        std::size_t n,
+        unsigned lMinBlockSize,
+        unsigned& blocks,
+        unsigned& duplicateLines) {
+
+        // make curried function for invoking ReportSeq
+        auto reportSeq = [&options, &source1, &source2, &outFile, &json_out](int line1, int line2, int count) {
+            ReportSeq(
+                line1,
+                line2,
+                count,
+                options.GetOutputXml(),
+                source1,
+                source2,
+                outFile,
+                json_out);
+        };
+
+        for (size_t y = 0; y < m; y++) {
+            unsigned seqLen = 0;
+            size_t maxX = std::min(n, m - y);
+            for (size_t x = 0; x < maxX; x++) {
+                if (matrix(x, y + x)) {
+                    seqLen++;
+                } else {
+                    if (seqLen >= lMinBlockSize) {
+                        int line1 = y + x - seqLen;
+                        int line2 = x - seqLen;
+                        if (line1 != line2 || source1 != source2) {
+                            reportSeq(line1, line2, seqLen);
+                            duplicateLines += seqLen;
+                            blocks++;
+                        }
+                    }
+
+                    seqLen = 0;
+                }
+            }
+
+            if (seqLen >= lMinBlockSize) {
+                int line1 = m - seqLen;
+                int line2 = n - seqLen;
+                if (line1 != line2 || source1 != source2) {
+                    reportSeq(line1, line2, seqLen);
+                    duplicateLines += seqLen;
+                    blocks++;
+                }
+            }
+        }
+    }
+
+    void ProcessHorizontal(
+        const SourceFile& source1,
+        const SourceFile& source2,
+        const Matrix& matrix,
+        const Options& options,
+        std::ostream& outFile,
+        std::optional<json>& json_out,
+        std::size_t m,
+        std::size_t n,
+        unsigned lMinBlockSize,
+        unsigned& blocks,
+        unsigned& duplicateLines) {
+
+        // make curried function for invoking ReportSeq
+        auto reportSeq = [&options, &source1, &source2, &outFile, &json_out](int line1, int line2, int count) {
+            ReportSeq(
+                line1,
+                line2,
+                count,
+                options.GetOutputXml(),
+                source1,
+                source2,
+                outFile,
+                json_out);
+        };
+
+        for (size_t x = 1; x < n; x++) {
+            unsigned seqLen = 0;
+            size_t maxY = std::min(m, n - x);
+            for (size_t y = 0; y < maxY; y++) {
+                if (matrix(x + y, y)) {
+                    seqLen++;
+                } else {
+                    if (seqLen >= lMinBlockSize) {
+                        reportSeq(y - seqLen, x + y - seqLen, seqLen);
+                        duplicateLines += seqLen;
+                        blocks++;
+                    }
+                    seqLen = 0;
+                }
+            }
+
+            if (seqLen >= lMinBlockSize) {
+                reportSeq(m - seqLen, n - seqLen, seqLen);
+                duplicateLines += seqLen;
+                blocks++;
+            }
+        }
+    }
+
     ProcessResult Process(
         const SourceFile& source1,
         const SourceFile& source2,
@@ -243,82 +353,38 @@ namespace {
                 (size_t)options.GetMinBlockSize(),
                 (std::max(n, m) * 100) / options.GetBlockPercentThreshold()));
 
-        unsigned blocks = 0;
-        unsigned duplicateLines = 0;
-
-        // make curried function for invoking ReportSeq
-        auto reportSeq = [&options, &source1, &source2, &outFile, &json_out](int line1, int line2, int count) {
-            ReportSeq(
-                line1,
-                line2,
-                count,
-                options.GetOutputXml(),
-                source1,
-                source2,
-                outFile,
-                json_out);
-        };
-
+        std::ostringstream ss_v;
+        std::ostringstream ss_h;
+        unsigned blocks_v = 0;
+        unsigned blocks_h = 0;
+        unsigned duplicateLines_v = 0;
+        unsigned duplicateLines_h = 0;
+        auto json_out_v = json_out ? std::optional(json()) : std::nullopt;
+        auto json_out_h = json_out ? std::optional(json()) : std::nullopt;
         // Scan vertical part
-        for (size_t y = 0; y < m; y++) {
-            unsigned seqLen = 0;
-            size_t maxX = std::min(n, m - y);
-            for (size_t x = 0; x < maxX; x++) {
-                if (matrix(x, y + x)) {
-                    seqLen++;
-                } else {
-                    if (seqLen >= lMinBlockSize) {
-                        int line1 = y + x - seqLen;
-                        int line2 = x - seqLen;
-                        if (line1 != line2 || source1 != source2) {
-                            reportSeq(line1, line2, seqLen);
-                            duplicateLines += seqLen;
-                            blocks++;
-                        }
-                    }
-
-                    seqLen = 0;
-                }
-            }
-
-            if (seqLen >= lMinBlockSize) {
-                int line1 = m - seqLen;
-                int line2 = n - seqLen;
-                if (line1 != line2 || source1 != source2) {
-                    reportSeq(line1, line2, seqLen);
-                    duplicateLines += seqLen;
-                    blocks++;
-                }
-            }
-        }
-
+        std::thread t1(ProcessVertical, std::ref(source1), std::ref(source2),
+                       std::ref(matrix), std::ref(options),
+                       std::ref(ss_v), std::ref(json_out_v),
+                       m, n, lMinBlockSize,
+                       std::ref(blocks_v), std::ref(duplicateLines_v));
         if (source1 != source2) {
             // Scan horizontal part
-            for (size_t x = 1; x < n; x++) {
-                unsigned seqLen = 0;
-                size_t maxY = std::min(m, n - x);
-                for (size_t y = 0; y < maxY; y++) {
-                    if (matrix(x + y, y)) {
-                        seqLen++;
-                    } else {
-                        if (seqLen >= lMinBlockSize) {
-                            reportSeq(y - seqLen, x + y - seqLen, seqLen);
-                            duplicateLines += seqLen;
-                            blocks++;
-                        }
-                        seqLen = 0;
-                    }
-                }
-
-                if (seqLen >= lMinBlockSize) {
-                    reportSeq(m - seqLen, n - seqLen, seqLen);
-                    duplicateLines += seqLen;
-                    blocks++;
-                }
-            }
+            std::thread t2(ProcessHorizontal, std::ref(source1), std::ref(source2),
+                           std::ref(matrix), std::ref(options),
+                           std::ref(ss_h), std::ref(json_out_h),
+                           m, n, lMinBlockSize,
+                           std::ref(blocks_h), std::ref(duplicateLines_h));
+            t2.join();
         }
+        t1.join();
 
-        return ProcessResult(blocks, duplicateLines);
+        if (json_out) {
+            json_out->emplace_back(json_out_v.value());
+            json_out->emplace_back(json_out_h.value());
+        }
+        outFile << ss_v.str() << ss_h.str();
+
+        return {blocks_v + blocks_h, duplicateLines_v + duplicateLines_h};
     }
 }
 
