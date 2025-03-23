@@ -3,13 +3,14 @@
 #include "HashUtil.h"
 #include "Matrix.h"
 #include "Options.h"
+#include "ProcessResult.h"
 #include "SourceFile.h"
 #include "SourceLine.h"
 #include "Utils.h"
 #include "TextFile.h"
 
+#include <BS_thread_pool.hpp>
 #include <nlohmann/json.hpp>
-#include "ProcessResult.h"
 
 #include <algorithm>
 #include <cmath>
@@ -327,7 +328,8 @@ namespace {
         Matrix& matrix,
         const Options& options,
         std::ostream& outFile,
-        std::optional<json>& json_out) {
+        std::optional<json>& json_out,
+        BS::thread_pool<>& pool) {
         size_t m = source1.GetNumOfLines();
         size_t n = source2.GetNumOfLines();
 
@@ -362,21 +364,24 @@ namespace {
         auto json_out_v = json_out ? std::optional(json()) : std::nullopt;
         auto json_out_h = json_out ? std::optional(json()) : std::nullopt;
         // Scan vertical part
-        std::thread t1(ProcessVertical, std::ref(source1), std::ref(source2),
-                       std::ref(matrix), std::ref(options),
-                       std::ref(ss_v), std::ref(json_out_v),
-                       m, n, lMinBlockSize,
-                       std::ref(blocks_v), std::ref(duplicateLines_v));
+        pool.detach_task([&] {
+            ProcessVertical(std::ref(source1), std::ref(source2),
+                std::ref(matrix), std::ref(options),
+                std::ref(ss_v), std::ref(json_out_v),
+                m, n, lMinBlockSize,
+                std::ref(blocks_v), std::ref(duplicateLines_v));
+        });
         if (source1 != source2) {
             // Scan horizontal part
-            std::thread t2(ProcessHorizontal, std::ref(source1), std::ref(source2),
-                           std::ref(matrix), std::ref(options),
-                           std::ref(ss_h), std::ref(json_out_h),
-                           m, n, lMinBlockSize,
-                           std::ref(blocks_h), std::ref(duplicateLines_h));
-            t2.join();
+            pool.detach_task([&] {
+                ProcessHorizontal(std::ref(source1), std::ref(source2),
+                    std::ref(matrix), std::ref(options),
+                    std::ref(ss_h), std::ref(json_out_h),
+                    m, n, lMinBlockSize,
+                    std::ref(blocks_h), std::ref(duplicateLines_h));
+            });
         }
-        t1.join();
+        pool.wait();
 
         if (json_out) {
             json_out->emplace_back(json_out_v.value());
@@ -446,6 +451,8 @@ int Duplo::Run(const Options& options) {
         }
     }
 
+    BS::thread_pool pool(2);
+
     // Compare each file with each other
     ProcessResult processResultTotal;
     for (unsigned i = 0; i < numFilesToCheck; i++) {
@@ -469,7 +476,8 @@ int Duplo::Run(const Options& options) {
                 matrix,
                 options,
                 out,
-                json_out);
+                json_out,
+                pool);
 
         // files to compare are those that have matching lines
         for (unsigned j = i + 1; j < sourceFiles.size(); j++) {
@@ -483,7 +491,8 @@ int Duplo::Run(const Options& options) {
                         matrix,
                         options,
                         out,
-                        json_out);
+                        json_out,
+                        pool);
             }
         }
 
