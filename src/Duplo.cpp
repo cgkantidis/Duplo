@@ -1,5 +1,6 @@
 #include "Duplo.h"
 #include "IExporter.h"
+#include "Matrix.h"
 #include "Options.h"
 #include "ProcessResult.h"
 #include "SourceFile.h"
@@ -34,7 +35,7 @@ namespace {
         });
     }
 
-    std::tuple<std::vector<SourceFile>, std::vector<bool>, unsigned, unsigned> LoadSourceFiles(
+    std::tuple<std::vector<SourceFile>, Matrix, unsigned, unsigned> LoadSourceFiles(
         const std::vector<std::string>& lines,
         unsigned minChars,
         bool ignorePrepStuff,
@@ -62,11 +63,11 @@ namespace {
             }
         }
 
-        if (maxLinesPerFile * maxLinesPerFile > matrix.max_size()) {
+        if (maxLinesPerFile * maxLinesPerFile > Matrix::max_size()) {
             std::ostringstream stream;
             stream
                 << "Some files have too many lines. You can have files with approximately "
-                << std::sqrt(matrix.max_size())
+                << std::sqrt(Matrix::max_size())
                 << " lines at most." << std::endl
                 << "Longest files:" << std::endl;
             printLongestFiles(stream, sourceFiles, TOP_N_LONGEST);
@@ -77,7 +78,7 @@ namespace {
 
         // Generate matrix large enough for all files
         try {
-            matrix.resize(maxLinesPerFile * maxLinesPerFile);
+            return {std::move(sourceFiles), Matrix(maxLinesPerFile, maxLinesPerFile), files, locsTotal};
         }
         catch (const std::bad_alloc& ex) {
             std::ostringstream stream;
@@ -87,28 +88,26 @@ namespace {
             printLongestFiles(stream, sourceFiles, TOP_N_LONGEST);
             throw std::runtime_error(stream.str().c_str());
         }
-
-        return std::tuple(std::move(sourceFiles), matrix, files, locsTotal);
     }
 
     ProcessResult Process(
         const SourceFile& source1,
         const SourceFile& source2,
-        std::vector<bool>& matrix,
+        Matrix& matrix,
         const Options& options,
         IExporterPtr exporter) {
         size_t m = source1.GetNumOfLines();
         size_t n = source2.GetNumOfLines();
 
-        // Reset matrix data
-        std::fill(std::begin(matrix), std::begin(matrix) + m * n, false);
+        // Reshape and reset matrix data
+        matrix.reshape(m, n);
 
         // Compute matrix
         for (size_t y = 0; y < m; y++) {
             auto& line = source1.GetLine(y);
             for (size_t x = 0; x < n; x++) {
                 if (line == source2.GetLine(x)) {
-                    matrix[x + n * y] = true;
+                    matrix(x, y, true);
                 }
             }
         }
@@ -140,7 +139,7 @@ namespace {
             unsigned seqLen = 0;
             size_t maxX = std::min(n, m - y);
             for (size_t x = 0; x < maxX; x++) {
-                if (matrix[x + n * (y + x)]) {
+                if (matrix(x, y + x)) {
                     seqLen++;
                 } else {
                     if (seqLen >= lMinBlockSize) {
@@ -174,7 +173,7 @@ namespace {
                 unsigned seqLen = 0;
                 size_t maxY = std::min(m, n - x);
                 for (size_t y = 0; y < maxY; y++) {
-                    if (matrix[x + y + n * y]) {
+                    if (matrix(x + y, y)) {
                         seqLen++;
                     } else {
                         if (seqLen >= lMinBlockSize) {
