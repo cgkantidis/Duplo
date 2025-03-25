@@ -12,13 +12,17 @@
 #include <cmath>
 #include <format>
 #include <iostream>
+#include <mutex>
 #include <sstream>
 #include <unordered_map>
 #include <unordered_set>
 
+#include <BS_thread_pool.hpp>
+
 typedef std::tuple<unsigned, std::string> FileLength;
 typedef const std::string* StringPtr;
-typedef std::unordered_map<unsigned long, std::vector<StringPtr>> HashToFiles;
+using HashToFiles = std::unordered_map<unsigned long, std::vector<StringPtr>>;
+using thread_pool = BS::thread_pool<>;
 
 static constexpr std::size_t TOP_N_LONGEST = 10;
 
@@ -34,7 +38,7 @@ namespace {
         });
     }
 
-    std::tuple<std::vector<SourceFile>, std::vector<bool>, unsigned, unsigned> LoadSourceFiles(
+    std::tuple<std::vector<SourceFile>, std::vector<bool>, unsigned, unsigned, std::size_t> LoadSourceFiles(
         const std::vector<std::string>& lines,
         unsigned minChars,
         bool ignorePrepStuff,
@@ -88,7 +92,7 @@ namespace {
             throw std::runtime_error(stream.str().c_str());
         }
 
-        return std::tuple(std::move(sourceFiles), matrix, files, locsTotal);
+        return std::tuple(std::move(sourceFiles), matrix, files, locsTotal, maxLinesPerFile);
     }
 
     ProcessResult Process(
@@ -96,7 +100,8 @@ namespace {
         const SourceFile& source2,
         std::vector<bool>& matrix,
         const Options& options,
-        IExporterPtr exporter) {
+        IExporterPtr exporter,
+        std::mutex &exporter_mtx) {
         size_t m = source1.GetNumOfLines();
         size_t n = source2.GetNumOfLines();
 
@@ -126,7 +131,8 @@ namespace {
         unsigned duplicateLines = 0;
 
         // make curried function for invoking ReportSeq
-        auto reportSeq = [&source1, &source2, &exporter](int line1, int line2, int count) {
+        auto reportSeq = [&source1, &source2, &exporter, &exporter_mtx](int line1, int line2, int count) {
+            std::scoped_lock sl(exporter_mtx);
             exporter->ReportSeq(
                 line1,
                 line2,
@@ -198,6 +204,67 @@ namespace {
     }
 }
 
+void task1(thread_pool &pool,
+        std::vector<SourceFile>::iterator l_it,
+        std::vector<SourceFile>::iterator r_end,
+        std::size_t max_lines,
+        HashToFiles const &hashToFiles,
+        Options const &options,
+        IExporterPtr &exporter,
+        ProcessResult &processResultTotal,
+        std::mutex &log_mtx,
+        std::size_t &progress,
+        std::size_t &num_files) {
+    // get matching files
+    std::unordered_set<StringPtr> matchingFiles;
+    for (std::size_t k = 0; k < l_it->GetNumOfLines(); k++) {
+        auto hash = l_it->GetLine(k).GetHash();
+        const auto& filenames = hashToFiles.find(hash)->second;
+        matchingFiles.insert(filenames.begin(), filenames.end());
+    }
+
+    std::vector<bool> matrix(max_lines * max_lines);
+
+    ProcessResult processResult =
+        Process(
+            *l_it,
+            *l_it,
+            matrix,
+            options,
+            exporter,
+            log_mtx);
+
+    // files to compare are those that have matching lines
+    for (auto r_it = std::next(l_it); r_it != r_end; ++r_it) {
+        if (options.GetIgnoreSameFilename() && StringUtil::IsSameFilename(*l_it, *r_it)) {
+            continue;
+        }
+        if (matchingFiles.find(&r_it->GetFilename()) == matchingFiles.end()) {
+            continue;
+        }
+        processResult
+            << Process(
+                   *l_it,
+                   *r_it,
+                   matrix,
+                   options,
+                   exporter,
+                   log_mtx);
+    }
+
+    {
+        std::scoped_lock sl(log_mtx);
+        ++progress;
+        if (processResult.Blocks() > 0) {
+            exporter->LogMessage(std::format("{}/{} ({:.1f}%) {} found: {} block(s)\n", progress, num_files, 100.0 * progress / num_files, l_it->GetFilename(), processResult.Blocks()));
+        } else {
+            exporter->LogMessage(std::format("{}/{} ({:.1f}%) {} nothing found.\n", progress, num_files, 100.0 * progress / num_files, l_it->GetFilename()));
+        }
+
+        processResultTotal << processResult;
+    }
+}
+
 int Duplo::Run(const Options& options) {
 
     IExporterPtr exporter = IExporter::CreateExporter(options);
@@ -206,12 +273,19 @@ int Duplo::Run(const Options& options) {
     exporter->WriteHeader();
 
     auto lines = FileSystem::LoadFileList(options.GetListFilename());
-    auto [sourceFiles, matrix, files, locsTotal] = LoadSourceFiles(
+    auto [sourceFiles, matrix, files, locsTotal, max_lines] = LoadSourceFiles(
         lines,
         options.GetMinChars(),
         options.GetIgnorePrepStuff(),
         exporter);
-    auto numFilesToCheck = options.GetFilesToCheck() > 0 ? std::min(options.GetFilesToCheck(), sourceFiles.size()) : sourceFiles.size();
+
+    std::size_t progress = 0;
+    std::size_t num_files = sourceFiles.size();
+    auto end_it = sourceFiles.end();
+    if (options.GetFilesToCheck() > 0 && options.GetFilesToCheck() < sourceFiles.size()) {
+        end_it = std::next(sourceFiles.begin(), options.GetFilesToCheck());
+        num_files = options.GetFilesToCheck();
+    }
 
     // hash maps
     HashToFiles hashToFiles;
@@ -221,52 +295,17 @@ int Duplo::Run(const Options& options) {
         }
     }
 
+    thread_pool pool(options.getNumThreads());
+
     // Compare each file with each other
     ProcessResult processResultTotal;
-    for (unsigned i = 0; i < numFilesToCheck; i++) {
-        const auto& left = sourceFiles[i];
-
-        // get matching files
-        std::unordered_set<StringPtr> matchingFiles;
-        for (std::size_t k = 0; k < left.GetNumOfLines(); k++) {
-            auto hash = left.GetLine(k).GetHash();
-            const auto& filenames = hashToFiles[hash];
-            matchingFiles.reserve(filenames.size());
-            for (auto& x : filenames) {
-                matchingFiles.insert(x);
-            }
-        }
-
-        ProcessResult processResult =
-            Process(
-                left,
-                left,
-                matrix,
-                options,
-                exporter);
-
-        // files to compare are those that have matching lines
-        for (unsigned j = i + 1; j < sourceFiles.size(); j++) {
-            const auto& right = sourceFiles[j];
-            if ((!options.GetIgnoreSameFilename() || !StringUtil::IsSameFilename(left, right)) && matchingFiles.find(&right.GetFilename()) != matchingFiles.end()) {
-                processResult
-                    << Process(
-                           left,
-                           right,
-                           matrix,
-                           options,
-                           exporter);
-            }
-        }
-
-        if (processResult.Blocks() > 0) {
-            exporter->LogMessage(std::format("{} found: {} block(s)\n", left.GetFilename(), processResult.Blocks()));
-        } else {
-            exporter->LogMessage(std::format("{} nothing found.\n", left.GetFilename()));
-        }
-
-        processResultTotal << processResult;
+    std::mutex log_mtx;
+    for (auto l_it = sourceFiles.begin(), l_end = std::prev(end_it); l_it != l_end; ++l_it) {
+        pool.detach_task([&pool, l_it, end_it, &max_lines, &hashToFiles, &options, &exporter, &processResultTotal, &log_mtx, &progress, &num_files]{
+            task1(pool, l_it, end_it, max_lines, hashToFiles, options, exporter, processResultTotal, log_mtx, progress, num_files);
+        });
     }
+    pool.wait();
 
     exporter->WriteFooter(options, files, locsTotal, processResultTotal);
 
@@ -274,3 +313,4 @@ int Duplo::Run(const Options& options) {
                ? EXIT_FAILURE
                : EXIT_SUCCESS;
 }
+
