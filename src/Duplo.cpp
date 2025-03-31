@@ -16,6 +16,8 @@
 #include <sstream>
 #include <unordered_map>
 #include <unordered_set>
+#include <thread>
+#include <ranges>
 
 #include <BS_thread_pool.hpp>
 
@@ -207,14 +209,14 @@ namespace {
 void task1(thread_pool &pool,
         std::vector<SourceFile>::iterator l_it,
         std::vector<SourceFile>::iterator r_end,
-        std::size_t max_lines,
         HashToFiles const &hashToFiles,
         Options const &options,
         IExporterPtr &exporter,
         ProcessResult &processResultTotal,
         std::mutex &log_mtx,
         std::size_t &progress,
-        std::size_t &num_files) {
+        std::size_t &num_files,
+        std::unordered_map<std::thread::id, std::vector<bool>> &matrices) {
     // get matching files
     std::unordered_set<StringPtr> matchingFiles;
     for (std::size_t k = 0; k < l_it->GetNumOfLines(); k++) {
@@ -223,7 +225,7 @@ void task1(thread_pool &pool,
         matchingFiles.insert(filenames.begin(), filenames.end());
     }
 
-    std::vector<bool> matrix(max_lines * max_lines);
+    std::vector<bool> &matrix = matrices.find(std::this_thread::get_id())->second;
 
     ProcessResult processResult =
         Process(
@@ -296,13 +298,17 @@ int Duplo::Run(const Options& options) {
     }
 
     thread_pool pool(options.getNumThreads());
+    std::unordered_map<std::thread::id, std::vector<bool>> matrices;
+    for (auto const &thread_id : pool.get_thread_ids()) {
+        matrices[thread_id] = std::vector<bool>(max_lines * max_lines);
+    }
 
     // Compare each file with each other
     ProcessResult processResultTotal;
     std::mutex log_mtx;
     for (auto l_it = sourceFiles.begin(), l_end = std::prev(end_it); l_it != l_end; ++l_it) {
-        pool.detach_task([&pool, l_it, end_it, &max_lines, &hashToFiles, &options, &exporter, &processResultTotal, &log_mtx, &progress, &num_files]{
-            task1(pool, l_it, end_it, max_lines, hashToFiles, options, exporter, processResultTotal, log_mtx, progress, num_files);
+        pool.detach_task([&pool, l_it, end_it, &hashToFiles, &options, &exporter, &processResultTotal, &log_mtx, &progress, &num_files, &matrices]{
+            task1(pool, l_it, end_it, hashToFiles, options, exporter, processResultTotal, log_mtx, progress, num_files, matrices);
         });
     }
     pool.wait();
