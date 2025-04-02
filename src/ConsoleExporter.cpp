@@ -21,36 +21,24 @@ void ConsoleExporter::WriteFooter(
     unsigned tot_dup_lines) {
     Out()
         << "Configuration:"
-        << std::endl
-        << "  Number of files: "
+        << "\n  Number of files: "
         << files
-        << std::endl
-        << "  Minimal block size: "
+        << "\n  Minimal block size: "
         << options.GetMinBlockSize()
-        << std::endl
-        << "  Minimal characters in line: "
+        << "\n  Minimal characters in line: "
         << options.GetMinChars()
-        << std::endl
-        << "  Ignore preprocessor directives: "
+        << "\n  Ignore preprocessor directives: "
         << options.GetIgnorePrepStuff()
-        << std::endl
-        << "  Ignore same filenames: "
+        << "\n  Ignore same filenames: "
         << options.GetIgnoreSameFilename()
-        << std::endl
-        << std::endl
-        << "Results:"
-        << std::endl
-        << "  Lines of code: "
+        << "\n\nResults:"
+        << "\n  Lines of code: "
         << locsTotal
-        << std::endl
-        << "  Duplicate lines of code: "
+        << "\n  Duplicate lines of code: "
         << tot_dup_lines
-        << std::endl
-        << "  Total "
+        << "\n  Total "
         << tot_dup_blocks
-        << " duplicate block(s) found."
-        << std::endl
-        << std::endl;
+        << " duplicate block(s) found.\n\n";
 }
 
 void ConsoleExporter::ReportSeq(
@@ -61,15 +49,13 @@ void ConsoleExporter::ReportSeq(
     const SourceFile& source2) {
     Out()
         << source1.GetFilename()
-        << "(" << source1.GetLine(line1).GetLineNumber() << ")"
-        << std::endl;
+        << "(" << source1.GetLine(line1).GetLineNumber() << ")\n";
     Out()
         << source2.GetFilename()
-        << "(" << source2.GetLine(line2).GetLineNumber() << ")"
-        << std::endl;
+        << "(" << source2.GetLine(line2).GetLineNumber() << ")\n";
     for (int j = 0; j < count; j++) {
-        Out() << source1.GetLine(j + line1).GetLine() << std::endl;
+        Out() << source1.GetLine(j + line1).GetLine() << '\n';
     }
 
-    Out() << std::endl;
+    Out() << '\n';
 }

@@ -28,7 +28,7 @@ FileExporter::FileExporter(const Options& options, bool verbose) {
         stream
             << "Error: Can't open file: "
             << options.GetOutputFilename()
-            << std::endl;
+            << '\n';
         throw std::runtime_error(stream.str().c_str());
     }
 }

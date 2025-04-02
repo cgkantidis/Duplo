@@ -14,10 +14,8 @@ void XmlExporter::LogMessage(const std::string& message) {
 
 void XmlExporter::WriteHeader() {
     Out()
-        << "<?xml version=\"1.0\"?>"
-        << std::endl
-        << "<duplo>"
-        << std::endl;
+        << "<?xml version=\"1.0\"?>\n"
+        << "<duplo>\n";
 }
 
 void XmlExporter::WriteFooter(
@@ -27,8 +25,7 @@ void XmlExporter::WriteFooter(
     unsigned /*tot_dup_blocks*/,
     unsigned /*tot_dup_lines*/) {
     Out()
-        << "</duplo>"
-        << std::endl;
+        << "</duplo>\n";
 }
 
 void XmlExporter::ReportSeq(
@@ -38,25 +35,21 @@ void XmlExporter::ReportSeq(
     const SourceFile& source1,
     const SourceFile& source2) {
     Out()
-        << "    <set LineCount=\"" << count << "\">"
-        << std::endl;
+        << "    <set LineCount=\"" << count << "\">\n";
     int startLineNumber1 = source1.GetLine(line1).GetLineNumber();
     int endLineNumber1 = source1.GetLine(line1 + count - 1).GetLineNumber();
     Out()
         << "        <block SourceFile=\"" << source1.GetFilename()
         << "\" StartLineNumber=\"" << startLineNumber1
-        << "\" EndLineNumber=\"" << endLineNumber1 << "\"/>"
-        << std::endl;
+        << "\" EndLineNumber=\"" << endLineNumber1 << "\"/>\n";
     int startLineNumber2 = source2.GetLine(line2).GetLineNumber();
     int endLineNumber2 = source2.GetLine(line2 + count - 1).GetLineNumber();
     Out()
         << "        <block SourceFile=\"" << source2.GetFilename()
         << "\" StartLineNumber=\"" << startLineNumber2
-        << "\" EndLineNumber=\"" << endLineNumber2 << "\"/>"
-        << std::endl;
+        << "\" EndLineNumber=\"" << endLineNumber2 << "\"/>\n";
     Out()
-        << "        <lines xml:space=\"preserve\">"
-        << std::endl;
+        << "        <lines xml:space=\"preserve\">\n";
     for (int j = 0; j < count; j++) {
         // replace various characters/ strings so that it doesn't upset the XML parser
         std::string tmpstr = source1.GetLine(j + line1).GetLine();
@@ -73,9 +66,9 @@ void XmlExporter::ReportSeq(
         // > --> &gt;
         StringUtil::StrSub(tmpstr, "&gt;", ">", -1);
 
-        Out() << "            <line Text=\"" << tmpstr << "\"/>" << std::endl;
+        Out() << "            <line Text=\"" << tmpstr << "\"/>\n";
     }
 
-    Out() << "        </lines>" << std::endl;
-    Out() << "    </set>" << std::endl;
+    Out() << "        </lines>\n";
+    Out() << "    </set>\n";
 }

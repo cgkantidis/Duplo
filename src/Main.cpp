@@ -91,7 +91,7 @@ int main(int argc, const char* argv[]) {
         return run(argc, argv);
     }
     catch (const std::exception& ex) {
-        std::cerr << ex.what() << std::endl;
+        std::cerr << ex.what() << '\n';
         return EXIT_FAILURE;
     }
 }
