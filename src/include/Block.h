@@ -3,8 +3,7 @@
 
 #include "SourceFile.h"
 
-class Block {
-public:
+struct Block {
     SourceFile const* m_source1;
     SourceFile const* m_source2;
     unsigned m_line1;
