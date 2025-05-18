@@ -10,8 +10,6 @@ public:
     unsigned m_line1;
     unsigned m_line2;
     unsigned m_count;
-
-    auto operator<=>(Block const &) const = default;
 };
 
 #endif
